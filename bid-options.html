@@ -483,11 +483,12 @@ function parseOppCode(code) {
   }
   if (!watch) return null;
 
-  // Next: days off — 2 or 3 uppercase letters
-  const daysMatch = rest.match(/^([A-Z]{2,3})/);
+  // Next: days off — CBD gets exactly 2 letters, others get exactly 3
+  const daysLen = division === 'CBD' ? 2 : 3;
+  const daysMatch = rest.match(new RegExp('^([A-Z]{' + daysLen + '})'));
   if (!daysMatch) return null;
   const daysOff = expandDaysOff(daysMatch[1]);
-  rest = rest.slice(daysMatch[1].length);
+  rest = rest.slice(daysLen);
 
   // Remainder: sector number + optional skill
   let skill = null;
@@ -497,14 +498,27 @@ function parseOppCode(code) {
   return { division, watch, daysOff, skill };
 }
 
-// Expand abbreviated days off to readable format
-// Letters represent consecutive days; order is M T W Th F Sa Su
-// The abbreviation uses first letter(s) of each day
+// Canonical day-off order
+const DAYS_ORDER_3 = ['MTW','TWT','WTF','TFS','FSS','SSM','SMT'];
+const DAYS_ORDER_2 = ['MT','TW','WT','TF','FS','SS','SM'];
+
 function expandDaysOff(abbr) {
-  // Map single/double letter codes to day names
-  // We'll just return the abbr as-is for display — it's already readable
-  // But normalize to consistent format
   return abbr.toUpperCase();
+}
+
+function sortDaysOff(daysSet, isCBD) {
+  const order = isCBD ? DAYS_ORDER_2 : DAYS_ORDER_3;
+  const arr = [...daysSet];
+  arr.sort((a, b) => {
+    const ai = order.indexOf(a);
+    const bi = order.indexOf(b);
+    // Known order first, then alphabetical for unknowns
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+  return arr;
 }
 
 // Parse numeric days off "5,6,7" using 1=Sun,2=Mon,...7=Sat
@@ -605,7 +619,8 @@ function renderTable(rows, skillFilter, excludeDivs, excludeWatches) {
       if (!set || set.size === 0) {
         html += `<td><span class="none-label">None</span></td>`;
       } else {
-        const pills = [...set].sort().map(d => `<span class="days-pill">${d}</span>`).join(' ');
+        const sorted = sortDaysOff(set, div === 'CBD');
+        const pills = sorted.map(d => `<span class="days-pill">${d}</span>`).join(' ');
         html += `<td>${pills}</td>`;
       }
     });
@@ -617,6 +632,16 @@ function renderTable(rows, skillFilter, excludeDivs, excludeWatches) {
 }
 
 // ── EXPORT ────────────────────────────────────────────────────
+const BLACK = { fgColor: { rgb: '000000' } };
+const GOLD_COLOR = { fgColor: { rgb: 'C8A84B' } };
+const NAVY_COLOR = { fgColor: { rgb: '0F1F3D' } };
+
+function styleCell(ws, addr, opts = {}) {
+  if (!ws[addr]) ws[addr] = { t: 's', v: '' };
+  if (!ws[addr].s) ws[addr].s = {};
+  Object.assign(ws[addr].s, opts);
+}
+
 function exportExcel() {
   const empFirst = document.getElementById('emp-first').value.trim();
   const empLast  = document.getElementById('emp-last').value.trim();
@@ -624,62 +649,120 @@ function exportExcel() {
   const rank     = document.getElementById('rank-select').value;
   const bidTime  = new Date(document.getElementById('bid-time').value);
 
-  const empName  = [empLast && empFirst ? `${empLast}, ${empFirst}` : (empLast || empFirst || 'Officer'),
-                    empBadge ? `#${empBadge}` : ''].filter(Boolean).join(' ');
-  const safeName = empName.replace(/[^a-zA-Z0-9\s#]/g,'').replace(/\s+/g,'_');
+  const rankFull = { SGT: 'Sergeant', SC: 'Senior Corporal', PO: 'Police Officer' }[rank] || rank;
+  const nameStr  = empLast && empFirst ? `${empLast}, ${empFirst}` : (empLast || empFirst || 'Officer');
+  const badgeStr = empBadge ? ` #${empBadge}` : '';
+  const fullName = nameStr + badgeStr;
+  const safeName = fullName.replace(/[^a-zA-Z0-9\s#]/g,'').replace(/\s+/g,'_');
 
   const wb = XLSX.utils.book_new();
+  const aoa = [];
 
-  if (rank === 'SC') {
-    const ftoData = buildSheetData('tbl-FTO', 'With FTO Status');
-    const rtoData = buildSheetData('tbl-RTO', 'With RTO Status');
-    const maxRows = Math.max(ftoData.length, rtoData.length);
+  // Row 1: Title — spans 4 cols
+  aoa.push(['Bid Options Sheet', '', '', '']);
+  // Row 2: blank
+  aoa.push(['', '', '', '']);
+  // Row 3: Name | Bid Time label+value | Rank label+value
+  aoa.push([
+    `Name: ${fullName}`,
+    `Bid Time: ${bidTime.toLocaleString()}`,
+    '',
+    `Rank: ${rankFull}`
+  ]);
+  // Row 4: blank
+  aoa.push(['', '', '', '']);
 
-    const merged = [
-      ['Bid Options Sheet', '', '', '', '', '', '', '', `Generated: ${new Date().toLocaleString()}`],
-      [`Name: ${empName}`, '', '', '', '', '', '', '', `Bid Time: ${bidTime.toLocaleString()}`],
-      [`Badge: ${empBadge ? '#'+empBadge : 'N/A'}`, '', '', '', '', '', '', '', `Rank: ${rank}`],
-      [],
-    ];
-    for (let i = 0; i < maxRows; i++) {
-      const left  = ftoData[i]  || Array(4).fill('');
-      const right = rtoData[i]  || Array(4).fill('');
-      merged.push([...left, '', ...right]);
+  // Table builder
+  function addTable(tableId, label) {
+    if (rank === 'SC' && label) {
+      aoa.push([label, '', '', '']);
+      aoa.push(['', '', '', '']);
     }
-    const ws = XLSX.utils.aoa_to_sheet(merged);
-    XLSX.utils.book_append_sheet(wb, ws, 'Bid Options');
-  } else {
-    const tableData = buildSheetData('tbl-main', 'Available Bid Options');
-    const sheet = [
-      ['Bid Options Sheet'],
-      [`Name: ${empName}`, '', `Bid Time: ${bidTime.toLocaleString()}`],
-      [`Badge: ${empBadge ? '#'+empBadge : 'N/A'}`, '', `Rank: ${rank}`],
-      [`Generated: ${new Date().toLocaleString()}`],
-      [],
-      ...tableData,
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(sheet);
-    XLSX.utils.book_append_sheet(wb, ws, 'Bid Options');
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    // Headers
+    const headers = [...table.querySelectorAll('thead th')].map(th => th.textContent);
+    aoa.push(headers);
+    // Data rows
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      const row = [...tr.querySelectorAll('td')].map(td => {
+        const pills = td.querySelectorAll('.days-pill');
+        if (pills.length) return [...pills].map(p => p.textContent).join(', ');
+        return td.querySelector('.none-label') ? null : td.textContent.trim();
+      });
+      aoa.push(row);
+    });
+    aoa.push(['', '', '', '']);
   }
 
-  XLSX.writeFile(wb, `BidOptions_${safeName}_${new Date().toISOString().slice(0,10)}.xlsx`);
-}
+  if (rank === 'SC') {
+    addTable('tbl-FTO', 'With FTO Status');
+    addTable('tbl-RTO', 'With RTO Status');
+  } else {
+    addTable('tbl-main', null);
+  }
 
-function buildSheetData(tableId, label) {
-  const table = document.getElementById(tableId);
-  if (!table) return [];
-  const rows = [[label]];
-  const headers = [...table.querySelectorAll('thead th')].map(th => th.textContent);
-  rows.push(headers);
-  table.querySelectorAll('tbody tr').forEach(tr => {
-    const row = [...tr.querySelectorAll('td')].map(td => {
-      const pills = td.querySelectorAll('.days-pill');
-      if (pills.length) return [...pills].map(p => p.textContent).join(', ');
-      return td.querySelector('.none-label') ? '' : td.textContent.trim();
-    });
-    rows.push(row);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  // Apply styles
+  // Col widths
+  ws['!cols'] = [{ wch: 20 }, { wch: 28 }, { wch: 28 }, { wch: 28 }];
+
+  // Merge title row across 4 cols
+  if (!ws['!merges']) ws['!merges'] = [];
+  ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }); // Title
+  ws['!merges'].push({ s: { r: 2, c: 1 }, e: { r: 2, c: 2 } }); // Bid Time spans 2
+
+  // Style title
+  if (ws['A1']) {
+    ws['A1'].s = {
+      font: { bold: true, sz: 14 },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      fill: { fgColor: { rgb: 'FFFFFF' } },
+    };
+  }
+
+  // Style header row (Name/Bid Time/Rank row)
+  ['A3','B3','D3'].forEach(addr => {
+    if (ws[addr]) ws[addr].s = { font: { bold: true } };
   });
-  return rows;
+
+  // Black fill for null (None) cells
+  aoa.forEach((row, ri) => {
+    row.forEach((val, ci) => {
+      if (val === null) {
+        const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
+        ws[addr] = { t: 's', v: '', s: { fill: { fgColor: { rgb: '000000' } } } };
+      }
+    });
+  });
+
+  // Style table header rows (rows containing "Patrol Division")
+  aoa.forEach((row, ri) => {
+    if (row[0] === 'Patrol Division') {
+      row.forEach((_, ci) => {
+        const addr = XLSX.utils.encode_cell({ r: ri, c: ci });
+        if (ws[addr]) {
+          ws[addr].s = {
+            font: { bold: true, color: { rgb: 'FFFFFF' } },
+            fill: { fgColor: { rgb: '0F1F3D' } },
+            alignment: { horizontal: 'center' },
+          };
+        }
+      });
+    }
+  });
+
+  // Style section labels (FTO/RTO)
+  aoa.forEach((row, ri) => {
+    if (row[0] === 'With FTO Status' || row[0] === 'With RTO Status') {
+      const addr = XLSX.utils.encode_cell({ r: ri, c: 0 });
+      if (ws[addr]) ws[addr].s = { font: { bold: true, sz: 12 } };
+    }
+  });
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Bid Options');
+  XLSX.writeFile(wb, `BidOptions_${safeName}_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 // ── UI HELPERS ────────────────────────────────────────────────
