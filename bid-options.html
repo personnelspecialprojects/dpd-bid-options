@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bid Options Generator — DPD</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --navy:       #0F1F3D;
+    --navy-mid:   #162548;
+    --navy-light: #1E3260;
+    --gold:       #C8A84B;
+    --gold-light: #E2C46E;
+    --white:      #F4F6FA;
+    --muted:      #7A8FAD;
+    --green:      #27AE60;
+    --red:        #C0392B;
+    --amber:      #E67E22;
+    --card-bg:    #0D1A35;
+    --border:     #1F3460;
+    --radius:     6px;
+    --font-mono:  'Courier New', monospace;
+    --font-ui:    'Segoe UI', system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: linear-gradient(160deg, #0F1F3D 0%, #0A1628 100%);
+    color: var(--white);
+    font-family: var(--font-ui);
+    min-height: 100vh;
+    padding: 0 0 60px 0;
+  }
+
+  header {
+    background: var(--navy-mid);
+    border-bottom: 2px solid var(--gold);
+    padding: 14px 32px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .header-title { font-size: 18px; font-weight: 700; color: var(--gold); letter-spacing: 0.04em; }
+  .header-sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+
+  .card-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--gold);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 16px;
+  }
+
+  .form-row {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+  }
+
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group label { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+
+  input[type="datetime-local"],
+  input[type="text"],
+  select {
+    background: var(--navy-mid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--white);
+    padding: 8px 12px;
+    font-size: 14px;
+    font-family: var(--font-ui);
+    min-width: 200px;
+  }
+
+  input[type="datetime-local"]:focus,
+  select:focus { outline: 1px solid var(--gold); }
+
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--gold);
+    background: rgba(200,168,75,0.05);
+  }
+  .upload-zone .upload-icon { font-size: 32px; margin-bottom: 8px; }
+  .upload-zone .upload-label { font-size: 14px; color: var(--muted); }
+  .upload-zone .upload-label strong { color: var(--gold); }
+  .upload-zone input[type="file"] { display: none; }
+
+  .file-loaded {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(39,174,96,0.1);
+    border: 1px solid var(--green);
+    border-radius: var(--radius);
+    font-size: 13px;
+    color: var(--green);
+  }
+
+  .btn {
+    padding: 9px 20px;
+    border-radius: var(--radius);
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font-ui);
+    transition: background 0.15s;
+  }
+  .btn-primary { background: var(--gold); color: var(--navy); }
+  .btn-primary:hover { background: var(--gold-light); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-secondary { background: var(--navy-light); color: var(--white); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: var(--border); }
+  .btn-green { background: var(--green); color: #fff; }
+  .btn-green:hover { background: #1e8449; }
+
+  .status-bar {
+    padding: 10px 16px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    margin-bottom: 16px;
+    display: none;
+  }
+  .status-bar.info    { background: rgba(200,168,75,0.1); border: 1px solid var(--gold); color: var(--gold); display: block; }
+  .status-bar.success { background: rgba(39,174,96,0.1);  border: 1px solid var(--green); color: var(--green); display: block; }
+  .status-bar.error   { background: rgba(192,57,43,0.1);  border: 1px solid var(--red); color: var(--red); display: block; }
+
+  /* Results area */
+  .results-section { display: none; }
+  .results-section.visible { display: block; }
+
+  .table-label {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--gold);
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .options-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-bottom: 32px;
+  }
+
+  .options-table th {
+    background: var(--navy-light);
+    color: var(--gold);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 10px 14px;
+    text-align: left;
+    border: 1px solid var(--border);
+  }
+
+  .options-table td {
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    vertical-align: top;
+    color: var(--white);
+    line-height: 1.6;
+  }
+
+  .options-table tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+
+  .days-pill {
+    display: inline-block;
+    background: var(--navy-light);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 12px;
+    margin: 2px;
+    color: var(--white);
+  }
+
+  .none-label { color: var(--muted); font-style: italic; font-size: 12px; }
+
+  .summary-bar {
+    background: var(--navy-mid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 20px;
+  }
+  .summary-bar strong { color: var(--white); }
+
+  .export-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="header-title">BID OPTIONS GENERATOR</div>
+    <div class="header-sub">Dallas Police Department · Personnel Unit</div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Upload Card -->
+  <div class="card">
+    <div class="card-title">Step 1 — Upload Bid Report</div>
+    <div id="upload-zone" class="upload-zone" onclick="document.getElementById('file-input').click()"
+         ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+      <div class="upload-icon">📂</div>
+      <div class="upload-label">
+        <strong>Click to upload</strong> or drag and drop your bid report<br>
+        Accepts CSV or Excel (.xlsx / .xls)
+      </div>
+      <input type="file" id="file-input" accept=".csv,.xlsx,.xls" onchange="handleFile(event)">
+    </div>
+    <div id="file-loaded" style="display:none; margin-top:12px"></div>
+  </div>
+
+  <!-- Options Card -->
+  <div class="card">
+    <div class="card-title">Step 2 — Employee Details</div>
+    <div class="form-row" style="margin-bottom:16px">
+      <div class="form-group">
+        <label>First Name</label>
+        <input type="text" id="emp-first" placeholder="John" style="min-width:160px">
+      </div>
+      <div class="form-group">
+        <label>Last Name</label>
+        <input type="text" id="emp-last" placeholder="Smith" style="min-width:160px">
+      </div>
+      <div class="form-group">
+        <label>Badge Number</label>
+        <input type="text" id="emp-badge" placeholder="12345" style="min-width:120px">
+      </div>
+      <div class="form-group">
+        <label>Rank</label>
+        <select id="rank-select">
+          <option value="SGT">Sergeant (SGT)</option>
+          <option value="SC">Senior Corporal (SC)</option>
+          <option value="PO">Police Officer (PO)</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Employee Bid Time</label>
+        <input type="datetime-local" id="bid-time" step="60">
+      </div>
+      <div class="form-group" style="justify-content:flex-end; margin-left:auto">
+        <button class="btn btn-primary" onclick="generate()" id="gen-btn">Generate Options</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="status-bar" class="status-bar"></div>
+
+  <!-- Results -->
+  <div id="results-section" class="results-section">
+    <div class="export-row">
+      <button class="btn btn-green" onclick="exportExcel()">⬇ Export to Excel</button>
+      <button class="btn btn-secondary" onclick="clearResults()">✕ Clear</button>
+    </div>
+    <div id="summary-bar" class="summary-bar"></div>
+    <div id="tables-container"></div>
+  </div>
+
+</div>
+
+<script>
+// ── DIVISIONS (display order) ─────────────────────────────────
+const DIVISIONS = [
+  'Central', 'Northeast', 'Southeast', 'Southwest',
+  'Northwest', 'North Control', 'South Central', 'CBD'
+];
+
+// Division abbreviation → display name mapping
+const DIV_MAP = {
+  'CE': 'Central',   'NE': 'Northeast',  'SE': 'Southeast',
+  'SW': 'Southwest', 'NW': 'Northwest',  'NC': 'North Control',
+  'SC': 'South Central', 'CBD': 'CBD',
+  // full names also accepted
+  'CENTRAL': 'Central', 'NORTHEAST': 'Northeast', 'SOUTHEAST': 'Southeast',
+  'SOUTHWEST': 'Southwest', 'NORTHWEST': 'Northwest', 'NORTH CONTROL': 'North Control',
+  'SOUTH CENTRAL': 'South Central',
+};
+
+// Day number → abbreviation
+const DAY_ABBR = { 1:'M', 2:'T', 3:'W', 4:'Th', 5:'F', 6:'Sa', 7:'Su' };
+
+// Watch number → label
+const WATCH_LABEL = { '1':'1st Watch', '2':'2nd Watch', '3':'3rd Watch' };
+
+let rawData = [];
+let fileName = '';
+
+// ── FILE HANDLING ─────────────────────────────────────────────
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.add('drag-over');
+}
+function handleDragLeave(e) {
+  document.getElementById('upload-zone').classList.remove('drag-over');
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+}
+function handleFile(e) {
+  const file = e.target.files[0];
+  if (file) processFile(file);
+}
+
+function processFile(file) {
+  fileName = file.name;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      rawData = rows;
+      showFileLoaded(file.name, rows.length);
+      setStatus(`Loaded ${rows.length} rows from ${file.name}.`, 'info');
+    } catch(err) {
+      setStatus('Error reading file: ' + err.message, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function showFileLoaded(name, count) {
+  const zone = document.getElementById('upload-zone');
+  zone.style.display = 'none';
+  const fl = document.getElementById('file-loaded');
+  fl.style.display = 'flex';
+  fl.innerHTML = `<div class="file-loaded">✓ ${name} — ${count} rows loaded &nbsp; <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px" onclick="resetFile()">Change file</button></div>`;
+}
+
+function resetFile() {
+  rawData = [];
+  fileName = '';
+  document.getElementById('upload-zone').style.display = 'block';
+  document.getElementById('file-loaded').style.display = 'none';
+  document.getElementById('file-input').value = '';
+  clearResults();
+  clearStatus();
+}
+
+// ── GENERATE ──────────────────────────────────────────────────
+function generate() {
+  if (!rawData.length) { setStatus('Please upload a bid report first.', 'error'); return; }
+
+  const bidTimeStr = document.getElementById('bid-time').value;
+  if (!bidTimeStr) { setStatus('Please enter the employee\'s bid time.', 'error'); return; }
+
+  const bidTime = new Date(bidTimeStr);
+  const rank    = document.getElementById('rank-select').value;
+  const empFirst = document.getElementById('emp-first').value.trim();
+  const empLast  = document.getElementById('emp-last').value.trim();
+  const empBadge = document.getElementById('emp-badge').value.trim();
+  const empName  = [empLast && empFirst ? `${empLast}, ${empFirst}` : (empLast || empFirst), empBadge ? `#${empBadge}` : ''].filter(Boolean).join(' ');
+
+  // Detect columns (case-insensitive)
+  const sampleRow = rawData[0];
+  const keys = Object.keys(sampleRow);
+
+  const colMap = {};
+  keys.forEach(k => {
+    const kl = k.toLowerCase().replace(/[^a-z]/g,'');
+    if (kl.includes('watch'))   colMap.watch = k;
+    if (kl.includes('daysoff') || kl === 'daysoff') colMap.daysOff = k;
+    if (kl.includes('skill'))   colMap.skill = k;
+    if (kl.includes('bidtime') || kl.includes('biddate')) colMap.bidTime = k;
+    if (kl.includes('division') || kl === 'div') colMap.division = k;
+    if (kl.includes('org'))     colMap.org = k;
+    if (kl.includes('class'))   colMap.class = k;
+    if (kl.includes('oppcode')) colMap.oppCode = k;
+  });
+
+  // Fallback: use positional if named not found
+  if (!colMap.bidTime) {
+    // Try to find a date-looking column
+    keys.forEach(k => {
+      const val = sampleRow[k];
+      if (val && (val instanceof Date || (typeof val === 'string' && val.match(/\d{1,2}\/\d{1,2}\/\d{4}/)))) {
+        if (!colMap.bidTime) colMap.bidTime = k;
+      }
+    });
+  }
+
+  console.log('Column map:', colMap);
+  console.log('Sample row:', sampleRow);
+
+  // Filter rows by bid time and parse
+  const filtered = rawData.filter(row => {
+    const rawBidTime = row[colMap.bidTime];
+    if (!rawBidTime) return false;
+
+    let rowTime;
+    if (rawBidTime instanceof Date) {
+      rowTime = rawBidTime;
+    } else {
+      rowTime = new Date(rawBidTime);
+    }
+
+    if (isNaN(rowTime)) return false;
+    return rowTime >= bidTime;
+  });
+
+  if (!filtered.length) {
+    setStatus(`No bids found at or after ${bidTime.toLocaleString()}. Check bid time or file format.`, 'error');
+    return;
+  }
+
+  // Build tables
+  if (rank === 'SC') {
+    buildTables(filtered, colMap, 'FTO', empName, bidTime);
+    buildTables(filtered, colMap, 'RTO', empName, bidTime, true);
+  } else {
+    buildTables(filtered, colMap, null, empName, bidTime);
+  }
+
+  setStatus(`Generated bid options from ${filtered.length} qualifying bids (on or after ${bidTime.toLocaleString()}).`, 'success');
+}
+
+function parseDaysOff(raw) {
+  if (!raw) return '';
+  const str = String(raw).trim();
+
+  // If numeric like "5,6,7" or "5, 6, 7"
+  if (/^[\d,\s]+$/.test(str)) {
+    const nums = str.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+    return nums.map(n => DAY_ABBR[n] || n).join('');
+  }
+
+  // Already abbreviated
+  return str.replace(/[,\s]+/g, '');
+}
+
+function normalizeDiv(raw) {
+  if (!raw) return null;
+  const str = String(raw).trim().toUpperCase();
+  return DIV_MAP[str] || DIV_MAP[str.replace(/\s+/g,'')] || raw;
+}
+
+function normalizeWatch(raw) {
+  if (!raw) return null;
+  const str = String(raw).trim();
+  // Handle "1st Watch", "1", "Watch 1", "Alpha"->1, "Bravo"->2, "Charlie"->3
+  if (str.match(/^1|alpha/i)) return '1';
+  if (str.match(/^2|bravo/i)) return '2';
+  if (str.match(/^3|charlie/i)) return '3';
+  const m = str.match(/\d/);
+  return m ? m[0] : str;
+}
+
+function buildTables(rows, colMap, skillFilter, empName, bidTime, append = false) {
+  const container = document.getElementById('tables-container');
+  if (!append) container.innerHTML = '';
+
+  // Filter by skill if SC
+  let data = rows;
+  if (skillFilter) {
+    data = rows.filter(row => {
+      const skill = String(row[colMap.skill] || '').trim().toUpperCase();
+      return skill === skillFilter.toUpperCase();
+    });
+  }
+
+  // Build grid: division -> watch -> set of days-off strings
+  const grid = {};
+  DIVISIONS.forEach(d => {
+    grid[d] = { '1': new Set(), '2': new Set(), '3': new Set() };
+  });
+
+  data.forEach(row => {
+    const div   = normalizeDiv(row[colMap.division]);
+    const watch = normalizeWatch(row[colMap.watch]);
+    const days  = parseDaysOff(row[colMap.daysOff]);
+
+    if (!div || !watch || !days) return;
+
+    // Match to known division
+    const divKey = DIVISIONS.find(d => d.toLowerCase() === (div || '').toLowerCase()) || div;
+    if (!grid[divKey]) grid[divKey] = { '1': new Set(), '2': new Set(), '3': new Set() };
+    if (grid[divKey][watch]) grid[divKey][watch].add(days);
+  });
+
+  // Count total unique options
+  let totalOptions = 0;
+  DIVISIONS.forEach(d => {
+    ['1','2','3'].forEach(w => {
+      totalOptions += (grid[d][w] || new Set()).size;
+    });
+  });
+
+  // Render table
+  const label = skillFilter ? `${skillFilter} Status Options` : 'Available Bid Options';
+  const tableId = `table-${skillFilter || 'main'}`;
+
+  let html = `<div class="table-label">${label}</div>`;
+  html += `<table class="options-table" id="${tableId}">`;
+  html += `<thead><tr>
+    <th>Patrol Division</th>
+    <th>1st Watch</th>
+    <th>2nd Watch</th>
+    <th>3rd Watch</th>
+  </tr></thead><tbody>`;
+
+  DIVISIONS.forEach(div => {
+    const w1 = grid[div]['1'];
+    const w2 = grid[div]['2'];
+    const w3 = grid[div]['3'];
+
+    const cell = (set) => {
+      if (!set || set.size === 0) return `<span class="none-label">None</span>`;
+      return [...set].sort().map(d => `<span class="days-pill">${d}</span>`).join(' ');
+    };
+
+    html += `<tr>
+      <td><strong>${div}</strong></td>
+      <td>${cell(w1)}</td>
+      <td>${cell(w2)}</td>
+      <td>${cell(w3)}</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table>`;
+  container.innerHTML += html;
+
+  // Summary
+  const rank = document.getElementById('rank-select').value;
+  const summaryEl = document.getElementById('summary-bar');
+  const empStr = empName ? `<strong>${empName}</strong> · ` : '';
+  const badge = document.getElementById('emp-badge').value.trim();
+  const badgeStr = badge ? ` · Badge: <strong>#${badge}</strong>` : '';
+  summaryEl.innerHTML = `${empStr}${badgeStr} · Bid time: <strong>${bidTime.toLocaleString()}</strong> · Rank: <strong>${rank}</strong> · Qualifying bids in file: <strong>${rows.length}</strong>`;
+
+  document.getElementById('results-section').classList.add('visible');
+}
+
+// ── EXPORT ────────────────────────────────────────────────────
+function exportExcel() {
+  const empFirst = document.getElementById('emp-first').value.trim();
+  const empLast  = document.getElementById('emp-last').value.trim();
+  const empBadge = document.getElementById('emp-badge').value.trim();
+  const empName  = [empLast && empFirst ? `${empLast}, ${empFirst}` : (empLast || empFirst || 'Officer'), empBadge ? `#${empBadge}` : ''].filter(Boolean).join(' ');
+  const bidTime = new Date(document.getElementById('bid-time').value);
+  const rank    = document.getElementById('rank-select').value;
+  const wb = XLSX.utils.book_new();
+
+  const tableIds = rank === 'SC'
+    ? [{ id: 'table-FTO', label: 'FTO Options' }, { id: 'table-RTO', label: 'RTO Options' }]
+    : [{ id: 'table-main', label: 'Bid Options' }];
+
+  if (rank === 'SC') {
+    // Both tables on one sheet side by side
+    const wsData = buildExcelData('table-FTO', 'FTO Status Options');
+    const wsData2 = buildExcelData('table-RTO', 'RTO Status Options');
+
+    // Merge side by side with 2 blank cols between
+    const maxRows = Math.max(wsData.length, wsData2.length);
+    const merged = [];
+
+    // Header rows
+    const badgeLabel = document.getElementById('emp-badge').value.trim();
+    merged.push([`Bid Options Sheet`, '', '', '', '', '', '', '', `Generated: ${new Date().toLocaleString()}`]);
+    merged.push([`Name: ${empName}`, '', '', '', '', '', '', '', `Bid Time: ${bidTime.toLocaleString()}`]);
+    merged.push([`Badge: ${badgeLabel ? '#'+badgeLabel : 'N/A'}`, '', '', '', '', '', '', '', `Rank: ${rank}`]);
+    merged.push([]);
+
+    for (let i = 0; i < maxRows; i++) {
+      const left  = wsData[i]  || ['', '', '', ''];
+      const right = wsData2[i] || ['', '', '', ''];
+      merged.push([...left, '', '', ...right]);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(merged);
+    XLSX.utils.book_append_sheet(wb, ws, 'Bid Options');
+  } else {
+    const wsData = buildExcelData('table-main', 'Available Bid Options');
+    const badgeLabel2 = document.getElementById('emp-badge').value.trim();
+    const header = [
+      [`Bid Options Sheet`],
+      [`Name: ${empName}`, '', `Bid Time: ${bidTime.toLocaleString()}`],
+      [`Badge: ${badgeLabel2 ? '#'+badgeLabel2 : 'N/A'}`, '', `Rank: ${rank}`],
+      [`Generated: ${new Date().toLocaleString()}`],
+      [],
+      ...wsData
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(header);
+    XLSX.utils.book_append_sheet(wb, ws, 'Bid Options');
+  }
+
+  const safeName = empName.replace(/[^a-zA-Z0-9\s#]/g, '').replace(/\s+/g, '_');
+  XLSX.writeFile(wb, `BidOptions_${safeName}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
+
+function buildExcelData(tableId, label) {
+  const table = document.getElementById(tableId);
+  if (!table) return [];
+
+  const rows = [[label], ['Patrol Division', '1st Watch', '2nd Watch', '3rd Watch']];
+
+  table.querySelectorAll('tbody tr').forEach(tr => {
+    const cells = tr.querySelectorAll('td');
+    const row = [];
+    cells.forEach(td => {
+      const pills = td.querySelectorAll('.days-pill');
+      if (pills.length) {
+        row.push([...pills].map(p => p.textContent).join(', '));
+      } else {
+        row.push(td.querySelector('.none-label') ? '' : td.textContent.trim());
+      }
+    });
+    rows.push(row);
+  });
+
+  return rows;
+}
+
+// ── UI HELPERS ────────────────────────────────────────────────
+function setStatus(msg, type) {
+  const el = document.getElementById('status-bar');
+  el.textContent = msg;
+  el.className = `status-bar ${type}`;
+}
+
+function clearStatus() {
+  const el = document.getElementById('status-bar');
+  el.className = 'status-bar';
+  el.textContent = '';
+}
+
+function clearResults() {
+  document.getElementById('results-section').classList.remove('visible');
+  document.getElementById('tables-container').innerHTML = '';
+  clearStatus();
+}
+</script>
+</body>
+</html>
